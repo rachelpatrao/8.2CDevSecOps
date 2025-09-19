@@ -1,6 +1,6 @@
 pipeline {
   agent any
-  tools { nodejs 'node18' }   // <-- adds Node & npm to PATH
+  tools { nodejs 'node18' }   // NodeJS tool name must match what you configured in Jenkins
 
   environment {
     NOTIFY_EMAIL = 'rachelpatrao@gmail.com'
@@ -33,41 +33,18 @@ pipeline {
 
     stage('Test') {
       steps {
-        sh 'npm test'
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+          sh 'npm audit --audit-level=high | tee test.log'
+        }
       }
       post {
-        success {
+        always {
           emailext(
             to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] TEST stage: SUCCESS",
-            mimeType: 'text/html',
-            body: """
-              <h3>Test Stage Completed</h3>
-              <p><b>Status:</b> SUCCESS</p>
-              <p><b>Job:</b> ${env.JOB_NAME}</p>
-              <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-              <p><a href="${env.BUILD_URL}console">Open console log</a></p>
-              <p>The full build log is attached.</p>
-            """,
+            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] TEST stage - ${currentBuild.currentResult}",
+            body: "See console: ${env.BUILD_URL}console",
             attachLog: true,
-            compressLog: true
-          )
-        }
-        failure {
-          emailext(
-            to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] TEST stage: FAILURE",
-            mimeType: 'text/html',
-            body: """
-              <h3>Test Stage Completed</h3>
-              <p><b>Status:</b> FAILURE</p>
-              <p><b>Job:</b> ${env.JOB_NAME}</p>
-              <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-              <p><a href="${env.BUILD_URL}console">Open console log</a></p>
-              <p>The full build log is attached.</p>
-            """,
-            attachLog: true,
-            compressLog: true
+            attachmentsPattern: 'test.log'
           )
         }
       }
@@ -75,67 +52,41 @@ pipeline {
 
     stage('Security Scan') {
       steps {
-        sh '''
-          if command -v snyk >/dev/null 2>&1; then
-            echo "Running Snyk test..."
-            snyk test
-          else
-            echo "Snyk not found; running npm audit…"
-            npm audit --audit-level=high
-          fi
-        '''
+        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
+          sh 'npm audit --json | tee security-scan.json'
+        }
       }
       post {
-        success {
+        always {
           emailext(
             to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] SECURITY SCAN stage: SUCCESS",
-            mimeType: 'text/html',
-            body: """
-              <h3>Security Scan Stage Completed</h3>
-              <p><b>Status:</b> SUCCESS</p>
-              <p><b>Job:</b> ${env.JOB_NAME}</p>
-              <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-              <p><a href="${env.BUILD_URL}console">Open console log</a></p>
-              <p>The full build log is attached.</p>
-            """,
+            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] SECURITY SCAN stage - ${currentBuild.currentResult}",
+            body: "See console: ${env.BUILD_URL}console",
             attachLog: true,
-            compressLog: true
-          )
-        }
-        failure {
-          emailext(
-            to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] SECURITY SCAN stage: FAILURE",
-            mimeType: 'text/html',
-            body: """
-              <h3>Security Scan Stage Completed</h3>
-              <p><b>Status:</b> FAILURE</p>
-              <p><b>Job:</b> ${env.JOB_NAME}</p>
-              <p><b>Build:</b> #${env.BUILD_NUMBER}</p>
-              <p><a href="${env.BUILD_URL}console">Open console log</a></p>
-              <p>The full build log is attached.</p>
-            """,
-            attachLog: true,
-            compressLog: true
+            attachmentsPattern: 'security-scan.json'
           )
         }
       }
     }
 
-    // Optional stages...
     stage('Static Analysis') {
       when { expression { fileExists('package.json') } }
       steps {
         sh 'npx eslint . || true'
       }
     }
+
     stage('Package') {
-      steps { sh 'npm pack || true' }
+      steps {
+        sh 'npm pack || true'
+      }
     }
+
     stage('Deploy (demo)') {
       when { branch 'main' }
-      steps { echo 'Pretend deploy…' }
+      steps {
+        echo 'Pretend deploy…'
+      }
     }
   }
 
