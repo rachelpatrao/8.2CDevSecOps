@@ -1,5 +1,6 @@
 pipeline {
   agent any
+  tools { nodejs 'Node18' }   // <-- adds Node & npm to PATH
 
   environment {
     NOTIFY_EMAIL = 'rachelpatrao@gmail.com'
