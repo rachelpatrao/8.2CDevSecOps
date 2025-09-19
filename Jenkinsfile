@@ -2,14 +2,11 @@ pipeline {
   agent any
 
   environment {
-    // Change this to the email address that should receive notifications
     NOTIFY_EMAIL = 'rachelpatrao@gmail.com'
   }
 
   options {
     timestamps()
-    // Keep the console log; emails will attach it (gzipped)
-    ansiColor('xterm')
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -25,19 +22,16 @@ pipeline {
         sh 'node -v'
         sh 'npm -v'
       }
-      // (Tool ref: Node.js runtime)
     }
 
     stage('Install') {
       steps {
         sh 'npm ci'
       }
-      // (Tool ref: npm for dependency install)
     }
 
     stage('Test') {
       steps {
-        // Run your unit tests (adjust if your project uses mocha/jest etc.)
         sh 'npm test'
       }
       post {
@@ -75,24 +69,18 @@ pipeline {
             compressLog: true
           )
         }
-        always {
-          // You can also add attachmentsPattern here if you export JUnit/XML, e.g.:
-          // attachmentsPattern: '**/junit*.xml'
-        }
       }
-      // (Tool ref: Jest/Mocha for tests)
     }
 
     stage('Security Scan') {
       steps {
-        // Prefer Snyk if you have it; fallback to npm audit
         sh '''
           if command -v snyk >/dev/null 2>&1; then
             echo "Running Snyk test..."
-            snyk test || true
+            snyk test
           else
-            echo "Snyk not found; running npm audit (non-blocking)..."
-            npm audit --audit-level=high || true
+            echo "Snyk not found; running npm audit…"
+            npm audit --audit-level=high
           fi
         '''
       }
@@ -131,42 +119,25 @@ pipeline {
             compressLog: true
           )
         }
-        always {
-          // If you export Snyk JSON, you can attach it like:
-          // attachmentsPattern: '**/snyk-report.json'
-        }
       }
-      // (Tool ref: Snyk CLI or npm audit)
     }
 
-    // Optional examples (not required by your Task 2, but handy)
-
+    // Optional stages...
     stage('Static Analysis') {
       when { expression { fileExists('package.json') } }
       steps {
         sh 'npx eslint . || true'
       }
-      // (Tool ref: ESLint)
     }
-
     stage('Package') {
-      steps {
-        sh 'npm pack || true'
-      }
-      // (Tool ref: npm pack, or Docker for container packaging)
+      steps { sh 'npm pack || true' }
     }
-
     stage('Deploy (demo)') {
       when { branch 'main' }
-      steps {
-        echo 'Pretend deploy…'
-        // e.g., Docker/K8s/Heroku/GitHub Pages—adapt to your real target
-      }
-      // (Tool ref: Docker CLI/Kubernetes/Heroku CLI/GitHub Actions)
+      steps { echo 'Pretend deploy…' }
     }
   }
 
-  // Optional: overall build notifications
   post {
     failure {
       emailext(
