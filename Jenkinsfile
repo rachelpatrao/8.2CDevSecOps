@@ -1,9 +1,14 @@
 pipeline {
   agent any
-  tools { nodejs 'node18' }   // NodeJS tool name must match what you configured in Jenkins
+
+  tools {
+    // Must match the name you configured under Manage Jenkins → Tools → NodeJS
+    nodejs 'node18'
+  }
 
   environment {
-    NOTIFY_EMAIL = 'rachelpatrao@gmail.com'
+    // Change to your recipient(s); comma-separate for multiple
+    RECIPIENTS = 'rachelpatrao@gmail.com'
   }
 
   options {
@@ -13,9 +18,7 @@ pipeline {
 
   stages {
     stage('Checkout') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('Setup Node') {
@@ -26,24 +29,32 @@ pipeline {
     }
 
     stage('Install') {
-      steps {
-        sh 'npm ci'
-      }
+      steps { sh 'npm ci' }
     }
 
     stage('Test') {
       steps {
-        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-          sh 'npm audit --audit-level=high | tee test.log'
+        script {
+          // Run tests, capture output to test.log, don’t fail the whole pipeline
+          def code = sh(script: 'set -o pipefail; npm test 2>&1 | tee test.log', returnStatus: true)
+          env.TEST_STATUS = (code == 0) ? 'SUCCESS' : 'FAILURE'
+          if (code != 0) unstable('Tests failed.')
         }
       }
       post {
         always {
+          archiveArtifacts artifacts: 'test.log', allowEmptyArchive: true
           emailext(
-            to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] TEST stage - ${currentBuild.currentResult}",
-            body: "See console: ${env.BUILD_URL}console",
-            attachLog: true,
+            to: env.RECIPIENTS,
+            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] TEST stage - ${env.TEST_STATUS}",
+            mimeType: 'text/html',
+            body: """
+              <p><b>Job:</b> ${env.JOB_NAME} #${env.BUILD_NUMBER}</p>
+              <p><b>Stage:</b> ${env.STAGE_NAME}</p>
+              <p><b>Status:</b> <b>${env.TEST_STATUS}</b></p>
+              <p><b>Console:</b> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
+              <p>Attached: <code>test.log</code></p>
+            """,
             attachmentsPattern: 'test.log'
           )
         }
@@ -52,53 +63,31 @@ pipeline {
 
     stage('Security Scan') {
       steps {
-        catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-          sh 'npm audit --json | tee security-scan.json'
+        script {
+          // Default simple scan: npm audit; save to security.log
+          def code = sh(script: 'set -o pipefail; npm audit --audit-level=high 2>&1 | tee security.log', returnStatus: true)
+          env.SEC_STATUS = (code == 0) ? 'SUCCESS' : 'FAILURE'
+          if (code != 0) unstable('Security scan found issues.')
         }
       }
       post {
         always {
+          archiveArtifacts artifacts: 'security.log', allowEmptyArchive: true
           emailext(
-            to: env.NOTIFY_EMAIL,
-            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] SECURITY SCAN stage - ${currentBuild.currentResult}",
-            body: "See console: ${env.BUILD_URL}console",
-            attachLog: true,
-            attachmentsPattern: 'security-scan.json'
+            to: env.RECIPIENTS,
+            subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] SECURITY SCAN - ${env.SEC_STATUS}",
+            mimeType: 'text/html',
+            body: """
+              <p><b>Job:</b> ${env.JOB_NAME} #${env.BUILD_NUMBER}</p>
+              <p><b>Stage:</b> ${env.STAGE_NAME}</p>
+              <p><b>Status:</b> <b>${env.SEC_STATUS}</b></p>
+              <p><b>Console:</b> <a href="${env.BUILD_URL}console">${env.BUILD_URL}console</a></p>
+              <p>Attached: <code>security.log</code></p>
+            """,
+            attachmentsPattern: 'security.log'
           )
         }
       }
-    }
-
-    stage('Static Analysis') {
-      when { expression { fileExists('package.json') } }
-      steps {
-        sh 'npx eslint . || true'
-      }
-    }
-
-    stage('Package') {
-      steps {
-        sh 'npm pack || true'
-      }
-    }
-
-    stage('Deploy (demo)') {
-      when { branch 'main' }
-      steps {
-        echo 'Pretend deploy…'
-      }
-    }
-  }
-
-  post {
-    failure {
-      emailext(
-        to: env.NOTIFY_EMAIL,
-        subject: "[${env.JOB_NAME} #${env.BUILD_NUMBER}] BUILD: FAILURE",
-        body: "Overall build failed. See console: ${env.BUILD_URL}console",
-        attachLog: true,
-        compressLog: true
-      )
     }
   }
 }
